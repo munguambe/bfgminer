@@ -1629,16 +1629,26 @@ static enum send_ret __stratum_send(struct pool *pool, char *s, ssize_t len)
 retry:
 		FD_ZERO(&wd);
 		FD_SET(sock, &wd);
-		if (select(sock + 1, NULL, &wd, NULL, &timeout) < 1) {
+		const int selrv = select(sock + 1, NULL, &wd, NULL, &timeout);
+		const int sockerr = SOCKERR;
+		applog(LOG_INFO,">>>SELECTsd %d %p %p", selrv, sock, INVSOCK);
+		if (selrv < 1) {
 			if (interrupted())
+			{
+				applog(LOG_INFO,">>>SELECTsd retry");
 				goto retry;
+			}
+			applog(LOG_INFO,">>>SELECTsd SELECTFAIL %s %p %p", bfg_strerror(sockerr, BST_SOCKET), sock, INVSOCK);
 			return SEND_SELECTFAIL;
 		}
 		rc = curl_easy_send(pool->stratum_curl, s + ssent, len, &sent);
 		if (rc != CURLE_OK)
 		{
 			if (rc != CURLE_AGAIN)
+			{
+				applog(LOG_INFO,">>>SELECTsd SENDFAIL %d", (int)rc);
 				return SEND_SENDFAIL;
+			}
 			sent = 0;
 		}
 		ssent += sent;
@@ -1699,7 +1709,9 @@ static bool socket_full(struct pool *pool, int wait)
 	FD_SET(sock, &rd);
 	timeout.tv_usec = 0;
 	timeout.tv_sec = wait;
-	if (select(sock + 1, &rd, NULL, NULL, &timeout) > 0)
+	const int selrv = select(sock + 1, &rd, NULL, NULL, &timeout);
+	applog(LOG_INFO, ">>>SELECTsf %d", selrv);
+	if (selrv > 0)
 		return true;
 	return false;
 }
@@ -1791,7 +1803,7 @@ char *recv_line(struct pool *pool)
 			{
 				if (rc != CURLE_AGAIN || !socket_full(pool, DEFAULT_SOCKWAIT - waited))
 				{
-					applog(LOG_DEBUG, "Failed to recv sock in recv_line");
+					applog(LOG_DEBUG, "Failed to recv sock in recv_line: %d", (int)rc);
 					suspend_stratum(pool);
 					break;
 				}
@@ -2624,6 +2636,7 @@ curl_socket_t grab_socket_opensocket_cb(void *clientp, __maybe_unused curlsockty
 {
 	struct pool *pool = clientp;
 	curl_socket_t sck = socket(addr->family, addr->socktype, addr->protocol);
+	applog(LOG_INFO, ">>>SOCKET %p (pool %d ; was: %p)", sck, pool->pool_no, pool->sock);
 	pool->sock = sck;
 	return sck;
 }
@@ -2700,6 +2713,7 @@ retry:
 	        pool->sockaddr_url, pool->stratum_port);
 	curl_easy_setopt(curl, CURLOPT_URL, s);
 	
+	applog(LOG_INFO, ">>>SOCKET INV pool %d was:%p", pool->pool_no, pool->sock);
 	pool->sock = INVSOCK;
 	if (curl_easy_perform(curl)) {
 		if (try_tls)
@@ -2776,6 +2790,7 @@ void suspend_stratum(struct pool *pool)
 		curl_easy_cleanup(pool->stratum_curl);
 	}
 	pool->stratum_curl = NULL;
+	applog(LOG_INFO, ">>>SOCKET INVb pool %d was:%p", pool->pool_no, pool->sock);
 	pool->sock = INVSOCK;
 	mutex_unlock(&pool->stratum_lock);
 }
@@ -2939,6 +2954,7 @@ bool restart_stratum(struct pool *pool)
 {
 	bool ret = true;
 	
+	applog(LOG_INFO, ">>>Cb %d", pool->pool_no);
 	mutex_lock(&pool->pool_test_lock);
 	
 	if (pool->stratum_active)
@@ -2950,6 +2966,7 @@ bool restart_stratum(struct pool *pool)
 		return_via(out, ret = false);
 	
 out:
+	applog(LOG_INFO, ">>>Zb %d", pool->pool_no);
 	mutex_unlock(&pool->pool_test_lock);
 	
 	return ret;

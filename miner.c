@@ -8649,20 +8649,28 @@ static bool pool_active(struct pool *pool, bool pinging)
 	if (pool->stratum_init)
 	{
 		if (pool->stratum_active)
+		{
+			applog(LOG_INFO, ">>>A %d", pool->pool_no);
 			return true;
+		}
 	}
 	else
 	if (!pool->idle)
 	{
 		timer_set_now(&tv_now);
 		if (pool_recently_got_work(pool, &tv_now))
+		{
+			applog(LOG_INFO, ">>>B %d", pool->pool_no);
 			return true;
+		}
 	}
 	
+	applog(LOG_INFO, ">>>C %d", pool->pool_no);
 	mutex_lock(&pool->pool_test_lock);
 	
 	if (pool->stratum_init)
 	{
+		applog(LOG_INFO, ">>>D %d", pool->pool_no);
 		ret = pool->stratum_active;
 		goto out;
 	}
@@ -8671,12 +8679,17 @@ static bool pool_active(struct pool *pool, bool pinging)
 	
 	if (pool->idle)
 	{
+		applog(LOG_INFO, ">>>E %d", pool->pool_no);
 		if (timer_elapsed(&pool->tv_idle, &tv_now) < 30)
+		{
+			applog(LOG_INFO, ">>>F %d", pool->pool_no);
 			goto out;
+		}
 	}
 	else
 	if (pool_recently_got_work(pool, &tv_now))
 	{
+		applog(LOG_INFO, ">>>G %d", pool->pool_no);
 		ret = true;
 		goto out;
 	}
@@ -8699,6 +8712,7 @@ static bool pool_active(struct pool *pool, bool pinging)
 	proto = want_gbt ? PLP_GETBLOCKTEMPLATE : PLP_GETWORK;
 
 tryagain:
+	applog(LOG_INFO, ">>>H %d %d", pool->pool_no, (int)proto);
 	rpc_req = prepare_rpc_req_probe(work, proto, NULL);
 	work->pool = pool;
 	if (!rpc_req)
@@ -8714,6 +8728,7 @@ tryagain:
 
 	/* Detect if a http getwork pool has an X-Stratum header at startup,
 	 * and if so, switch to that in preference to getwork if it works */
+	applog(LOG_INFO, ">>>I %d", pool->pool_no);
 	if (pool->stratum_url && want_stratum && pool_may_redirect_to(pool, pool->stratum_url) && (pool->has_stratum || stratum_works(pool))) {
 		if (!pool->has_stratum) {
 
@@ -8729,6 +8744,7 @@ tryagain:
 			json_decref(val);
 
 retry_stratum:
+		applog(LOG_INFO, ">>>J %d", pool->pool_no);
 		;
 		/* We create the stratum thread for each pool just after
 		 * successful authorisation. Once the init flag has been set
@@ -8741,23 +8757,30 @@ retry_stratum:
 
 			if (ret)
 			{
+				applog(LOG_INFO, ">>>K %d", pool->pool_no);
 				detect_algo = 2;
 				init_stratum_thread(pool);
 			}
 			else
 			{
+				applog(LOG_INFO, ">>>L %d", pool->pool_no);
 				pool_tclear(pool, &pool->stratum_init);
 				pool->tv_idle = tv_getwork_reply;
 			}
 			goto out;
 		}
+		applog(LOG_INFO, ">>>M %d", pool->pool_no);
 		ret = pool->stratum_active;
 		goto out;
 	}
 	else if (pool->has_stratum)
+	{
+		applog(LOG_INFO, ">>>N %d", pool->pool_no);
 		shutdown_stratum(pool);
+	}
 
 	if (val) {
+		applog(LOG_INFO, ">>>O %d", pool->pool_no);
 		bool rc;
 		json_t *res;
 
@@ -8768,7 +8791,7 @@ retry_stratum:
 		work->rolltime = rolltime;
 		rc = work_decode(pool, work, val);
 		if (rc) {
-			applog(LOG_DEBUG, "Successfully retrieved and deciphered work from pool %u %s",
+			applog(LOG_INFO, "Successfully retrieved and deciphered work from pool %u %s",
 			       pool->pool_no, pool->rpc_url);
 			work->pool = pool;
 			copy_time(&work->tv_getwork, &tv_getwork);
@@ -8788,7 +8811,7 @@ retry_stratum:
 		} else {
 badwork:
 			json_decref(val);
-			applog(LOG_DEBUG, "Successfully retrieved but FAILED to decipher work from pool %u %s",
+			applog(LOG_INFO, "Successfully retrieved but FAILED to decipher work from pool %u %s",
 			       pool->pool_no, pool->rpc_url);
 			pool->proto = proto = pool_protocol_fallback(proto);
 			if (PLP_NONE != proto)
@@ -8838,24 +8861,28 @@ badwork:
 				quit(1, "Failed to create pool longpoll thread");
 		}
 	} else if (PLP_NONE != (proto = pool_protocol_fallback(proto))) {
+		applog(LOG_INFO, ">>>P %d", pool->pool_no);
 		pool->proto = proto;
 		goto tryagain;
 	} else {
+		applog(LOG_INFO, ">>>Q %d", pool->pool_no);
 		pool->tv_idle = tv_getwork_reply;
 		free_work(work);
 nohttp:
+		applog(LOG_INFO, ">>>R %d", pool->pool_no);
 		/* If we failed to parse a getwork, this could be a stratum
 		 * url without the prefix stratum+tcp:// so let's check it */
 		if (extract_sockaddr(pool->rpc_url, &pool->sockaddr_url, &pool->stratum_port) && initiate_stratum(pool)) {
 			pool->has_stratum = true;
 			goto retry_stratum;
 		}
-		applog(LOG_DEBUG, "FAILED to retrieve work from pool %u %s",
+		applog(LOG_INFO, "FAILED to retrieve work from pool %u %s",
 		       pool->pool_no, pool->rpc_url);
 		if (!pinging)
 			applog(LOG_WARNING, "Pool %u slow/down or URL or credentials invalid", pool->pool_no);
 	}
 out:
+	applog(LOG_INFO, ">>>Z %d", pool->pool_no);
 	if (curl)
 		curl_easy_cleanup(curl);
 	mutex_unlock(&pool->pool_test_lock);
